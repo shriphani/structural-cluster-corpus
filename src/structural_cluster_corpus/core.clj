@@ -4,7 +4,8 @@
             [structural-cluster-corpus.cluster :as cluster]
             [subotai.warc.warc :as warc]
             [subotai.structural-similarity.core :as structural-similarity]
-            [subotai.structural-similarity.xpath-text :as xpath-text])
+            [subotai.structural-similarity.xpath-text :as xpath-text]
+            [subotai.structural-similarity.edit-distance :as edit-distance])
   (:use [clojure.pprint :only [pprint]]
         [subotai.structural-similarity.utils :only [cosine-similarity]]))
 
@@ -25,6 +26,18 @@
                            :payload
                            xpath-text/page-text-xpaths
                            xpath-text/char-frequency-representation)
+                      (catch Exception e nil))}))
+   {}
+   records))
+
+(defn records->corpus-tree
+  [records]
+  (reduce
+   (fn [acc r]
+     (merge acc {(:warc-target-uri r)
+                 (try (->> r
+                           :payload
+                           edit-distance/html->map)
                       (catch Exception e nil))}))
    {}
    records))
@@ -50,7 +63,7 @@
     (cluster/stream-clustering uris
                                belongs?)))
 
-(defn cluster-max-linkage-xpaths
+(defn cluster-single-linkage-xpaths
   [data-records]
   (let [corpus (records->corpus-xpaths data-records)
 
@@ -65,11 +78,65 @@
                        xpath-text/*sim-thresh*))
 
         belongs? (fn [pt cluster]
+                   (some
+                    #(similar? % pt)
+                    cluster))]      
+    (cluster/stream-clustering uris
+                               belongs?)))
+
+(defn cluster-max-linkage-edit
+  [data-records]
+  (let [corpus (records->corpus-tree data-records)
+
+        uris (map first corpus)
+
+        similar? (fn [x y]
+                   ;; (println :x x :y y :sim (cosine-similarity (corpus x)
+                   ;;                                            (corpus y)))
+                   (>= (try (- 1
+                               (/ (edit-distance/tree-edit-distance (corpus x)
+                                                                    (corpus y)
+                                                                    1
+                                                                    1
+                                                                    1)
+                                  (+ (edit-distance/tree-descendants (corpus x))
+                                     (edit-distance/tree-descendants (corpus y)))))
+                            (catch Exception e 0))
+                       edit-distance/*sim-thresh*))
+        
+        belongs? (fn [pt cluster]
                    (every?
                     #(similar? % pt)
                     cluster))]      
     (cluster/stream-clustering-max-linkage uris
                                            belongs?)))
+
+(defn cluster-single-linkage-edit
+  [data-records]
+  (let [corpus (records->corpus-tree data-records)
+
+        uris (map first corpus)
+        
+        similar? (fn [x y]
+                   ;; (println :x x :y y :sim (cosine-similarity (corpus x)
+                   ;;                                            (corpus y)))
+                   (>= (try (- 1
+                               (/ (edit-distance/tree-edit-distance (corpus x)
+                                                                    (corpus y)
+                                                                    1
+                                                                    1
+                                                                    1)
+                                  (+ (edit-distance/tree-descendants (corpus x))
+                                     (edit-distance/tree-descendants (corpus y)))))
+                            (catch Exception e 0))
+                       edit-distance/*sim-thresh*))
+
+        belongs? (fn [pt cluster]
+                   (some
+                    #(similar? % pt)
+                    cluster))]      
+    (cluster/stream-clustering uris
+                               belongs?)))
 
 (defn handle-warc-file-100
   [a-warc-file]
@@ -80,7 +147,7 @@
     (reverse
      (sort-by
       count
-      (cluster-max-linkage-xpaths data-records)))))
+      (cluster-max-linkage-edit data-records)))))
 
 (defn -main
   [& args]
