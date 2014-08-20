@@ -4,5 +4,6 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [subotai "0.2.12"]]
+                 [org.clojure/tools.cli "0.3.1"]
+                 [subotai "0.2.14"]]
   :main structural-cluster-corpus.core)
