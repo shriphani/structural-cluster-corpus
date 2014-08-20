@@ -4,6 +4,7 @@
             [clojure.string :as string]
             [clojure.tools.cli :refer [parse-opts]]
             [structural-cluster-corpus.cluster :as cluster]
+            [structural-cluster-corpus.report :as report]
             [subotai.warc.warc :as warc]
             [subotai.structural-similarity.core :as structural-similarity]
             [subotai.structural-similarity.xpath-text :as xpath-text]
@@ -188,7 +189,8 @@
    [nil "--xpath-text" "Use xpath text"]
    [nil "--single-linkage" "Use single linkage"]
    [nil "--out-file F" "Write clusters to file"]
-   [nil "--warc-file W" "Warc file to process"]])
+   [nil "--warc-file W" "Warc file to process"]
+   [nil "--report C" "Cluster file to report on"]])
 
 (defn -main
   [& args]
@@ -225,4 +227,7 @@
              (handle-warc-file-100 (:warc-file options)
                                    :single-linkage
                                    :edit-distance)
-             wrtr)))))
+             wrtr)
+
+            (:report options)
+            (report/cluster-report (:report options))))))
