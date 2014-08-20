@@ -1,6 +1,7 @@
 (ns structural-cluster-corpus.core
   "Structurally cluster a corpus"
   (:require [clojure.java.io :as io]
+            [clojure.string :as string]
             [clojure.tools.cli :refer [parse-opts]]
             [structural-cluster-corpus.cluster :as cluster]
             [subotai.warc.warc :as warc]
@@ -10,13 +11,20 @@
   (:use [clojure.pprint :only [pprint]]
         [subotai.structural-similarity.utils :only [cosine-similarity]]))
 
-(defn response-html-records
-  [records]
-  (filter
+(defn html-records
+  "Accept response records
+   filtered out by Subotai and
+   retrieve HTML"
+  [response-records]
+  (map
    (fn [r]
-     (and (= (-> r :warc-type) "response")
-          (re-find #"response" (-> r :content-type))))
-   records))
+     (let [html-starts (.indexOf (:payload r)
+                                 "<")]
+       (merge r {:payload (if (neg? html-starts)
+                            (:payload r)
+                            (subs (:payload r)
+                                  html-starts))})))
+   response-records))
 
 (defn records->corpus-xpaths
   [records]
@@ -142,9 +150,9 @@
 (defn handle-warc-file-100
   [a-warc-file linkage algorithm]
   (let [warc-stream (warc/warc-input-stream a-warc-file)
-        records (warc/stream-warc-records-seq warc-stream)
+        records (warc/stream-html-records-seq warc-stream)
 
-        data-records (take 1000 (response-html-records records))]
+        data-records (take 1000 (html-records records))]
 
     (cond (and (= linkage :max-linkage)
                (= algorithm :edit-distance))
