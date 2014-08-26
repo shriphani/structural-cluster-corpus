@@ -151,8 +151,13 @@
 (defn handle-warc-file-100
   [a-warc-file linkage algorithm]
   (let [warc-stream (warc/warc-input-stream a-warc-file)
-        records (warc/stream-html-records-seq warc-stream)
-
+        records
+        (filter
+         (fn [r]
+           (re-find #"HTTP.*200"
+                    (:payload r)))
+         (warc/stream-html-records-seq warc-stream))
+        
         data-records (take 1000 (html-records records))]
 
     (cond (and (= linkage :max-linkage)
