@@ -29,16 +29,41 @@
 
 (defn records->corpus-xpaths
   [records]
-  (reduce
-   (fn [acc r]
-     (merge acc {(:warc-target-uri r)
-                 (try (->> r
-                           :payload
-                           xpath-text/page-text-xpaths
-                           xpath-text/char-frequency-representation)
-                      (catch Exception e nil))}))
-   {}
-   records))
+  (let [no-idf-map (reduce
+                    (fn [acc r]
+                      (merge acc {(:warc-target-uri r)
+                                  (try (->> r
+                                            :payload
+                                            xpath-text/page-text-xpaths
+                                            xpath-text/char-frequency-representation)
+                                       (catch Exception e nil))}))
+                    {}
+                    records)
+
+        df-components (reduce
+                       (fn [dfs [uri paths-scored]]
+                         (merge-with
+                          +
+                          dfs
+                          (reduce
+                           (fn [dfs-inner [path _]]
+                             (merge-with + dfs-inner {path 1}))
+                           {}
+                           paths-scored)))
+                       {}
+                       no-idf-map)]
+    (reduce
+     (fn [acc [uri paths-scored]]
+       (merge
+        acc
+        {uri (into
+              {}
+              (map
+               (fn [[path tf]]
+                 [path (/ tf (df-components path))])
+               paths-scored))}))
+     {}
+     no-idf-map)))
 
 (defn records->corpus-tree
   [records]
@@ -201,38 +226,41 @@
   [& args]
   (let [options (:options
                  (parse-opts args cli-options))]
-    (with-open [wrtr (io/writer (:out-file options))]
-      (cond (and (:max-linkage options)
-                 (:xpath-text options))
+    (cond (and (:max-linkage options)
+               (:xpath-text options))
+          (with-open [wrtr (io/writer (:out-file options))]
             (pprint
              (handle-warc-file-100 (:warc-file options)
                                    :max-linkage
                                    :xpath-text)
-             wrtr)
-
-            (and (:single-linkage options)
-                 (:xpath-text options))
+             wrtr))
+          
+          (and (:single-linkage options)
+               (:xpath-text options))
+          (with-open [wrtr (io/writer (:out-file options))]
             (pprint
              (handle-warc-file-100 (:warc-file options)
                                    :single-linkage
                                    :xpath-text)
-             wrtr)
-
-            (and (:max-linkage options)
-                 (:edit-distance options))
+             wrtr))
+          
+          (and (:max-linkage options)
+               (:edit-distance options))
+          (with-open [wrtr (io/writer (:out-file options))]
             (pprint
              (handle-warc-file-100 (:warc-file options)
                                    :max-linkage
                                    :edit-distance)
-             wrtr)
+             wrtr))
 
-            (and (:single-linkage options)
-                 (:edit-distance options))
+          (and (:single-linkage options)
+               (:edit-distance options))
+          (with-open [wrtr (io/writer (:out-file options))]
             (pprint
              (handle-warc-file-100 (:warc-file options)
                                    :single-linkage
                                    :edit-distance)
-             wrtr)
-
-            (:report options)
-            (report/cluster-report (:report options))))))
+             wrtr))
+          
+          (:report options)
+          (report/cluster-report (:report options)))))
