@@ -28,17 +28,23 @@
    response-records))
 
 (defn records->corpus-xpaths
+  "Scale the score by the XPath DF"
   [records]
-  (let [no-idf-map (reduce
-                    (fn [acc r]
-                      (merge acc {(:warc-target-uri r)
-                                  (try (->> r
-                                            :payload
-                                            xpath-text/page-text-xpaths
-                                            xpath-text/char-frequency-representation)
-                                       (catch Exception e nil))}))
-                    {}
-                    records)
+  (reduce
+     (fn [acc r]
+       (merge acc {(:warc-target-uri r)
+                   (try (->> r
+                             :payload
+                             xpath-text/page-text-xpaths
+                             xpath-text/char-frequency-representation)
+                        (catch Exception e nil))}))
+     {}
+     records))
+
+(defn records->corpus-xpaths-scale
+  "Scale the score by the XPath DF"
+  [records]
+  (let [no-idf-map (records->corpus-xpaths records)
 
         df-components (reduce
                        (fn [dfs [uri paths-scored]]
@@ -65,6 +71,41 @@
      {}
      no-idf-map)))
 
+(defn records->corpus-xpaths-idf
+  "Scale the score by the IDF term"
+  [records]
+  (let [no-idf-map (records->corpus-xpaths records)
+
+        df-components (reduce
+                       (fn [dfs [uri paths-scored]]
+                         (merge-with
+                          +
+                          dfs
+                          (reduce
+                           (fn [dfs-inner [path _]]
+                             (merge-with + dfs-inner {path 1}))
+                           {}
+                           paths-scored)))
+                       {}
+                       no-idf-map)
+
+        N (count records)]
+    (reduce
+     (fn [acc [uri paths-scored]]
+       (merge
+        acc
+        {uri (into
+              {}
+              (map
+               (fn [[path tf]]
+                 [path (* tf (Math/log
+                              (/ N
+                                 (df-components path))))])
+               paths-scored))}))
+     {}
+     no-idf-map)))
+
+
 (defn records->corpus-tree
   [records]
   (reduce
@@ -82,7 +123,7 @@
   (let [corpus (records->corpus-xpaths data-records)
 
         uris (map first corpus)
-        
+
         similar? (fn [x y]
                    ;; (println :x x :y y :sim (cosine-similarity (corpus x)
                    ;;                                            (corpus y)))
@@ -94,16 +135,16 @@
         belongs? (fn [pt cluster]
                    (some
                     #(similar? % pt)
-                    cluster))]      
+                    cluster))]
     (cluster/stream-clustering uris
                                belongs?)))
 
 (defn cluster-max-linkage-xpaths
   [data-records]
-  (let [corpus (records->corpus-xpaths data-records)
-
-        uris (map first corpus)
+  (let [corpus (records->corpus-xpaths-idf data-records)
         
+        uris (map first corpus)
+
         similar? (fn [x y]
                    ;; (println :x x :y y :sim (cosine-similarity (corpus x)
                    ;;                                            (corpus y)))
@@ -115,7 +156,7 @@
         belongs? (fn [pt cluster]
                    (every?
                     #(similar? % pt)
-                    cluster))]      
+                    cluster))]
     (cluster/stream-clustering-max-linkage uris
                                            belongs?)))
 
@@ -138,11 +179,11 @@
                                      (edit-distance/tree-descendants (corpus y)))))
                             (catch Exception e 0))
                        edit-distance/*sim-thresh*))
-        
+
         belongs? (fn [pt cluster]
                    (every?
                     #(similar? % pt)
-                    cluster))]      
+                    cluster))]
     (cluster/stream-clustering-max-linkage uris
                                            belongs?)))
 
@@ -151,7 +192,7 @@
   (let [corpus (records->corpus-tree data-records)
 
         uris (map first corpus)
-        
+
         similar? (fn [x y]
                    ;; (println :x x :y y :sim (cosine-similarity (corpus x)
                    ;;                                            (corpus y)))
@@ -169,7 +210,7 @@
         belongs? (fn [pt cluster]
                    (some
                     #(similar? % pt)
-                    cluster))]      
+                    cluster))]
     (cluster/stream-clustering uris
                                belongs?)))
 
@@ -182,7 +223,7 @@
            (re-find #"HTTP.*200"
                     (:payload r)))
          (warc/stream-html-records-seq warc-stream))
-        
+
         data-records (take 1000 (html-records records))]
 
     (cond (and (= linkage :max-linkage)
@@ -234,7 +275,7 @@
                                    :max-linkage
                                    :xpath-text)
              wrtr))
-          
+
           (and (:single-linkage options)
                (:xpath-text options))
           (with-open [wrtr (io/writer (:out-file options))]
@@ -243,7 +284,7 @@
                                    :single-linkage
                                    :xpath-text)
              wrtr))
-          
+
           (and (:max-linkage options)
                (:edit-distance options))
           (with-open [wrtr (io/writer (:out-file options))]
@@ -261,6 +302,6 @@
                                    :single-linkage
                                    :edit-distance)
              wrtr))
-          
+
           (:report options)
           (report/cluster-report (:report options)))))
